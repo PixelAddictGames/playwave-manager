@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <link rel="icon" type="image/x-icon" href="./assets/img/icon.ico">
+    <!-- tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- poppins font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap"
+          rel="stylesheet">
+
+    <!-- tailwind config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                fontFamily: {
+                    "body": ["Poppins", "ui-sans-serif"],
+                },
+                extend: {
+                    colors: {
+                        "playwave": '#ffe99d',
+                        "primary": "#ffd19d",
+                        "playwave-white": "#fff6d8",
+                        "playwave-darker": "#ffe076",
+                        "playwave-yellow": "#ffc500",
+                        "error": "#D32F2F"
+                    }
+                }
+            }
+        }
+    </script>
+
+    <script src="//bundle.run/buffer@6.0.3"></script>
+    <script src="./assets/scripts/wav-to-pda.js"></script>
+    <title>Playwave Manager</title>
+</head>
+
+<body class="w-screen h-svh bg-playwave font-body">
+<div class="flex justify-center items-center h-full">
+    <div class="bg-playwave-white p-6 rounded-md shadow-xl w-1/2 max-w-4/5">
+
+        <div class="flex justify-center mb-6">
+            <img src="assets/img/title_logo_transparent.png" alt="Logo">
+        </div>
+
+        <div>
+            <p class="text-center mb-3">
+                Convert your <span class="uppercase">wav</span> files to work with Playwave
+            </p>
+            <div
+                    id="drop-zone"
+                    class="w-full h-64 rounded-md p-3 border-4 flex border-primary/30 border-dashed
+                     hover:border-primary transition duration-500 relative"
+            >
+                <div class="absolute w-full h-full flex justify-center items-center">
+                    <p class="me-2 opacity-30" id="drag-text">Drag <span class="uppercase">wav</span> files here for them to be
+                        converted</p>
+                    <div id="loader" class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-e-transparent align-[-0.125em] text-surface motion-reduce:animate-[spin_1.5s_linear_infinite] hidden"
+                         role="status">
+                    </div>
+                </div>
+                <ul id="file-list" class="flex gap-3 flex-wrap z-50 overflow-scroll">
+                </ul>
+                <input id="wav-upload" type="file" accept="audio/wav" class="hidden" multiple/>
+            </div>
+        </div>
+        <div class="mt-6">
+            <label for="wav-upload" class="py-3 px-3 bg-primary rounded-md hover:bg-primary/80 cursor-pointer">
+                Select with File Dialog
+            </label>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- SCRIPTS -->
+<script>
+    // Browsers don't have the Buffer API, so we have to polyfill it.
+    window.Buffer = window.buffer.Buffer;
+</script>
+
+<script>
+    let state = {files: []};
+
+    const input = document.querySelector("#wav-upload");
+    const dz = document.querySelector("#drop-zone")
+
+    const dragText = document.querySelector("#drag-text")
+    const loader = document.querySelector("#loader")
+
+    // listen for file uploads
+    input.addEventListener('change', handleFileUpload)
+
+    // listen for the drop to get the file and stop the border from highlighting
+    dz.addEventListener("drop", handleDrop)
+    dz.addEventListener("drop", handleDragLeave)
+    dz.addEventListener("dragleave", handleDragLeave)
+
+    // highlight the border when the mouse enters the div
+    dz.addEventListener("dragover", handleDragOver)
+    dz.addEventListener("dragenter", handleDragOver)
+
+    function handleDrop(e) {
+        e.preventDefault()
+        const newFiles = Array.from(e.dataTransfer.files)
+        processFiles(newFiles).then(() => setDragBoxLoading(false))
+    }
+
+    function handleDragOver(e) {
+        e.preventDefault()
+        const dz = document.querySelector("#drop-zone")
+        dz.classList.add("border-primary")
+    }
+
+    function handleDragLeave(e) {
+        e.preventDefault()
+        const dz = document.querySelector("#drop-zone")
+        dz.classList.remove("border-primary")
+    }
+
+    function handleFileUpload(e) {
+        e.preventDefault()
+        const inputElem = e.currentTarget
+        const newFiles = Array.from(inputElem.files)
+        setDragBoxLoading(true)
+        processFiles(newFiles).then(() => setDragBoxLoading(false))
+        input.value = null;
+    }
+
+    async function processFiles(newFiles) {
+        const convertedFiles = []
+
+        for (const file of newFiles) {
+            convertedFiles.push(await convertFile(file))
+        }
+
+        state.files = state.files.concat(convertedFiles)
+        updateDOM(state.files)
+    }
+
+    function setDragBoxLoading(loading) {
+        if (loading) {
+            loader.classList.remove("hidden")
+            dragText.classList.add("hidden")
+        } else {
+            loader.classList.add("hidden")
+            dragText.classList.remove("hidden")
+        }
+    }
+
+    async function convertFile(file) {
+        const filename = file.name;
+        const arrayBuffer = await file.arrayBuffer();
+
+        const buffer = new Uint8Array(arrayBuffer);
+
+        try {
+            const pda = wavToPda.wavToPda(buffer);
+            return {
+                url: URL.createObjectURL(new Blob([pda])),
+                name: filename,
+                outputName: filename.replace('.wav', '.pda'),
+                timestamp: Date.now()
+            }
+        } catch (error) {
+            return {
+                name: filename,
+                errorMessage: error.message,
+                timestamp: Date.now()
+            }
+        }
+
+    }
+
+    function updateDOM(files) {
+        files.sort((a, b) => b.timestamp - a.timestamp)
+        document.querySelector("#file-list").innerHTML = files
+            .map(formatFileCard)
+            .join("");
+    }
+
+    function formatFileCard(file) {
+        if (file.errorMessage) {
+            return `
+        <li class="bg-error text-white rounded p-3 w-fit h-fit">
+            <div>
+                <p>Error Converting ${file.name}</p>
+            </div>
+        </li>
+        `
+        }
+        return `
+        <li class="bg-playwave rounded p-3 w-fit h-fit">
+            <div>
+                <p>${file.outputName}</p>
+                <a href="${file.url}" download="${file.outputName}" class="text-xs" >Download</a>
+            </div>
+        </li>
+        `
+    }
+
+    // function fileBubble(file) {
+    //     if (file.errorMessage) {
+    //         return `<li class="file-bubble error">
+    //         <div class="input-file-name">${file.name}</div>
+    //         <p class="error-message">
+    //             ${file.errorMessage}
+    //         </p>
+    //     </li>`;
+    //     }
+    //     return `<li class="file-bubble">
+    //         <div class="input-file-name">${file.name}</div>
+    //         <div class="output-file-name">
+    //             → <a href="${file.url}" download="${file.outputName}">${file.outputName}</a>
+    //         </div>
+    //     </li>`;
+    // }
+</script>
+</body>
+
+</html>
